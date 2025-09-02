@@ -3,7 +3,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #if ESP_IDF_VERSION < (4, 0, 0) || ARDUINO_ARCH_ESP32
-#include "rom/miniz.h"
+#include "miniz.h"
 #else
 #include "esp32/rom/miniz.h"
 #endif
