@@ -2,11 +2,7 @@
 #include "esp_assert.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#if ESP_IDF_VERSION < (4, 0, 0) || ARDUINO_ARCH_ESP32
 #include "miniz.h"
-#else
-#include "miniz.h"
-#endif
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
