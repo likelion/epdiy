@@ -35,4 +35,6 @@ extern const EpdBoardDefinition epd_board_lilygo_t5_47_touch;
 extern const EpdBoardDefinition epd_board_v2_v3;
 extern const EpdBoardDefinition epd_board_v4;
 extern const EpdBoardDefinition epd_board_v5;
+#ifdef CONFIG_EPD_BOARD_REVISION_V6
 extern const EpdBoardDefinition epd_board_v6;
+#endif

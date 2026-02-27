@@ -1,5 +1,9 @@
 
 #include "tps65185.h"
+
+#ifdef CONFIG_EPD_BOARD_REVISION_V6
+/* TPS65185 I2C driver — only needed for V6 board */
+
 #include "esp_err.h"
 #include "esp_log.h"
 
@@ -94,3 +98,5 @@ int8_t tps_read_thermistor(i2c_port_t i2c_num) {
     }
     return (int8_t)tps_read_register(i2c_num, TPS_REG_TMST_VALUE);
 }
+
+#endif /* CONFIG_EPD_BOARD_REVISION_V6 */

@@ -4,6 +4,9 @@
 #include "../display_ops.h"
 #include "../i2s_data_bus.h"
 #include "../rmt_pulse.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "soc/gpio_periph.h"
+#endif
 
 #define CFG_DATA GPIO_NUM_23
 #define CFG_CLK GPIO_NUM_18

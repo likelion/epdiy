@@ -17,6 +17,7 @@
 #include "esp_system.h"  // for ESP_IDF_VERSION_VAL
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "esp_private/periph_ctrl.h"
+#include "soc/gpio_periph.h"
 #else
 #include "driver/periph_ctrl.h"
 #endif

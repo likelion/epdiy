@@ -1,4 +1,10 @@
 #include "epd_board.h"
+
+#ifdef CONFIG_EPD_BOARD_REVISION_V6
+/* V6 board support — requires driver/i2c.h (I2C for TPS65185 + PCA9555).
+ * Guarded because ESPHome excludes the 'driver' component on IDF v5,
+ * and V5-board users don't need any of this. */
+
 #include "../include/board/epd_board_v6.h"
 
 #include "esp_log.h"
@@ -300,3 +306,5 @@ const EpdBoardDefinition epd_board_v6 = {
   .temperature_init = NULL,
   .ambient_temperature = epd_board_ambient_temperature,
 };
+
+#endif /* CONFIG_EPD_BOARD_REVISION_V6 */

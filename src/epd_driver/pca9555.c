@@ -2,6 +2,10 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+
+#ifdef CONFIG_EPD_BOARD_REVISION_V6
+/* PCA9555 I2C driver — only needed for V6 board */
+
 #include <driver/i2c.h>
 #include <stdint.h>
 #include "pca9555.h"
@@ -97,3 +101,5 @@ uint8_t pca9555_read_input(i2c_port_t i2c_port, int high_port) {
 
 	return r_data[0];
 }
+
+#endif /* CONFIG_EPD_BOARD_REVISION_V6 */

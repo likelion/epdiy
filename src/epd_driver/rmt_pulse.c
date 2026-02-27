@@ -1,15 +1,30 @@
 #include "rmt_pulse.h"
-#include "driver/rmt.h"
 #include "esp_system.h"
-
 #include "soc/rmt_struct.h"
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "esp_private/periph_ctrl.h"
+#else
+#include "driver/periph_ctrl.h"
+#endif
+
+#include "soc/gpio_sig_map.h"
+#include "soc/io_mux_reg.h"
+#include "driver/gpio.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "esp32/rom/gpio.h"
+#include "soc/gpio_periph.h"
+#else
+#include "rom/gpio.h"
+#endif
+#include "esp_intr_alloc.h"
 
 static intr_handle_t gRMT_intr_handle = NULL;
 
-// the RMT channel configuration object
-static rmt_config_t row_rmt_config;
+/* Channel 1 is used (matching original code) */
+#define RMT_CHANNEL 1
 
-// keep track of wether the current pulse is ongoing
+// keep track of whether the current pulse is ongoing
 volatile bool rmt_tx_done = true;
 
 /**
@@ -21,39 +36,65 @@ static void IRAM_ATTR rmt_interrupt_handler(void *arg) {
 }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-// The extern line is declared in esp-idf/components/driver/deprecated/rmt_legacy.c. It has access to RMTMEM through the rmt_private.h header
-// which we can't access outside the sdk. Declare our own extern here to properly use the RMTMEM smybol defined in components/soc/[target]/ld/[target].peripherals.ld
-// Also typedef the new rmt_mem_t struct to the old rmt_block_mem_t struct. Same data fields, different names
-typedef rmt_mem_t rmt_block_mem_t ;
-extern rmt_block_mem_t RMTMEM;
+/* IDF v5 removed rmt_item32_t, rmt_mem_t, and RMTMEM from soc/rmt_struct.h.
+ * Define them here — the hardware layout hasn't changed. */
+typedef struct {
+    union {
+        struct {
+            uint32_t duration0 :15;
+            uint32_t level0 :1;
+            uint32_t duration1 :15;
+            uint32_t level1 :1;
+        };
+        uint32_t val;
+    };
+} rmt_item32_t;
+
+typedef volatile struct {
+    struct {
+        rmt_item32_t data32[64];
+    } chan[8];
+} rmt_block_mem_t;
+
+/* RMT channel memory is at a fixed address on ESP32 */
+#define RMTMEM (*(rmt_block_mem_t *)0x3FF56800)
 #endif
 
 void rmt_pulse_init(gpio_num_t pin) {
 
-  row_rmt_config.rmt_mode = RMT_MODE_TX;
-  // currently hardcoded: use channel 0
-  row_rmt_config.channel = RMT_CHANNEL_1;
+  /* Enable RMT peripheral clock */
+  periph_module_enable(PERIPH_RMT_MODULE);
 
-  row_rmt_config.gpio_num = pin;
-  row_rmt_config.mem_block_num = 2;
+  /* Use RMTMEM instead of FIFO */
+  RMT.apb_conf.fifo_mask = 1;
 
-  // Divide 80MHz APB Clock by 8 -> .1us resolution delay
-  row_rmt_config.clk_div = 8;
+  /* Configure channel via registers directly — replaces rmt_config() */
+  RMT.conf_ch[RMT_CHANNEL].conf0.div_cnt = 8;       /* 80MHz / 8 = 10MHz → 0.1us resolution */
+  RMT.conf_ch[RMT_CHANNEL].conf0.mem_size = 2;       /* 2 memory blocks */
+  RMT.conf_ch[RMT_CHANNEL].conf0.carrier_en = 0;
+  RMT.conf_ch[RMT_CHANNEL].conf0.carrier_out_lv = 0;
+  RMT.conf_ch[RMT_CHANNEL].conf0.mem_pd = 0;
+  RMT.conf_ch[RMT_CHANNEL].conf0.clk_en = 1;
 
-  row_rmt_config.tx_config.loop_en = false;
-  row_rmt_config.tx_config.carrier_en = false;
-  row_rmt_config.tx_config.carrier_level = RMT_CARRIER_LEVEL_LOW;
-  row_rmt_config.tx_config.idle_level = RMT_IDLE_LEVEL_LOW;
-  row_rmt_config.tx_config.idle_output_en = true;
+  RMT.conf_ch[RMT_CHANNEL].conf1.tx_start = 0;
+  RMT.conf_ch[RMT_CHANNEL].conf1.rx_en = 0;
+  RMT.conf_ch[RMT_CHANNEL].conf1.mem_owner = 0;      /* TX owns memory */
+  RMT.conf_ch[RMT_CHANNEL].conf1.tx_conti_mode = 0;
+  RMT.conf_ch[RMT_CHANNEL].conf1.ref_always_on = 1;  /* Use APB clock */
+  RMT.conf_ch[RMT_CHANNEL].conf1.idle_out_lv = 0;    /* Idle low */
+  RMT.conf_ch[RMT_CHANNEL].conf1.idle_out_en = 1;    /* Enable idle output */
 
-  #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(4, 2, 0) && ESP_IDF_VERSION > ESP_IDF_VERSION_VAL(4, 0, 2)
-    #error "This driver is not compatible with IDF version 4.1.\nPlease use 4.0 or >= 4.2!"
-  #endif
+  /* Route GPIO to RMT channel 1 output signal */
+  PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[pin], PIN_FUNC_GPIO);
+  gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+  gpio_matrix_out(pin, RMT_SIG_OUT0_IDX + RMT_CHANNEL, false, false);
+
+  /* Register interrupt — replaces rmt_set_tx_intr_en() */
   esp_intr_alloc(ETS_RMT_INTR_SOURCE, ESP_INTR_FLAG_LEVEL3,
                  rmt_interrupt_handler, 0, &gRMT_intr_handle);
 
-  rmt_config(&row_rmt_config);
-  rmt_set_tx_intr_en(row_rmt_config.channel, true);
+  /* Enable TX end interrupt for channel 1 (bit 3 = ch1_tx_end) */
+  RMT.int_ena.val |= (1 << (RMT_CHANNEL * 3));
 }
 
 void IRAM_ATTR pulse_ckv_ticks(uint16_t high_time_ticks,
@@ -61,7 +102,7 @@ void IRAM_ATTR pulse_ckv_ticks(uint16_t high_time_ticks,
   while (!rmt_tx_done) {
   };
   volatile rmt_item32_t *rmt_mem_ptr =
-      &(RMTMEM.chan[row_rmt_config.channel].data32[0]);
+      &(RMTMEM.chan[RMT_CHANNEL].data32[0]);
   if (high_time_ticks > 0) {
     rmt_mem_ptr->level0 = 1;
     rmt_mem_ptr->duration0 = high_time_ticks;
@@ -73,11 +114,11 @@ void IRAM_ATTR pulse_ckv_ticks(uint16_t high_time_ticks,
     rmt_mem_ptr->level1 = 0;
     rmt_mem_ptr->duration1 = 0;
   }
-  RMTMEM.chan[row_rmt_config.channel].data32[1].val = 0;
+  RMTMEM.chan[RMT_CHANNEL].data32[1].val = 0;
   rmt_tx_done = false;
-  RMT.conf_ch[row_rmt_config.channel].conf1.mem_rd_rst = 1;
-  RMT.conf_ch[row_rmt_config.channel].conf1.mem_owner = RMT_MEM_OWNER_TX;
-  RMT.conf_ch[row_rmt_config.channel].conf1.tx_start = 1;
+  RMT.conf_ch[RMT_CHANNEL].conf1.mem_rd_rst = 1;
+  RMT.conf_ch[RMT_CHANNEL].conf1.mem_owner = 0;  /* TX owns memory */
+  RMT.conf_ch[RMT_CHANNEL].conf1.tx_start = 1;
   while (wait && !rmt_tx_done) {
   };
 }

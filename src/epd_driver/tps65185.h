@@ -1,6 +1,9 @@
 #ifndef TPS65185_H
 #define TPS65185_H
 
+#ifdef CONFIG_EPD_BOARD_REVISION_V6
+/* TPS65185 PMIC — only used by V6 board, requires driver/i2c.h */
+
 #include <driver/i2c.h>
 
 #define TPS_REG_TMST_VALUE 0x00
@@ -33,5 +36,7 @@ void tps_set_vcom(i2c_port_t i2c_num, unsigned vcom_mV);
  * Read the temperature via the on-board thermistor.
  */
 int8_t tps_read_thermistor(i2c_port_t i2c_num);
+
+#endif /* CONFIG_EPD_BOARD_REVISION_V6 */
 
 #endif //  TPS65185_H
